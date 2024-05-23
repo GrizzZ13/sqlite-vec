@@ -50,7 +50,7 @@ prefix=dist
 $(prefix):
 	mkdir -p $(prefix)
 
-TARGET_LOADABLE=$(prefix)/vec0.$(LOADABLE_EXTENSION)
+TARGET_LOADABLE=$(prefix)/libvec.$(LOADABLE_EXTENSION)
 TARGET_STATIC=$(prefix)/libsqlite_vec0.a
 TARGET_STATIC_H=$(prefix)/sqlite-vec.h
 TARGET_CLI=$(prefix)/sqlite3
@@ -64,8 +64,9 @@ all: loadable static cli
 $(TARGET_LOADABLE): sqlite-vec.c sqlite-vec.h $(prefix)
 	gcc \
 		-fPIC -shared \
+		-Ivendor/include \
+		-Lvendor/lib \
 		-Wall -Wextra \
-		-Ivendor/ \
 		-O3 \
 		$(CFLAGS) \
 		$< -o $@

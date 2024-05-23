@@ -1828,7 +1828,7 @@ static sqlite3_module vec_eachModule = {
     /* xRelease    */ 0,
     /* xRollbackTo */ 0,
     /* xShadowName */ 0,
-#if SQLITE_VERSION_NUMBER >= 3440000
+#if SQLITE_VERSION_NUMBER >= 3044000
     /* xIntegrity  */ 0
 #endif
 };
@@ -2438,7 +2438,7 @@ static sqlite3_module vec_npy_eachModule = {
     /* xRelease    */ 0,
     /* xRollbackTo */ 0,
     /* xShadowName */ 0,
-#if SQLITE_VERSION_NUMBER >= 3440000
+#if SQLITE_VERSION_NUMBER >= 3044000
     /* xIntegrity  */ 0,
 #endif
 };
@@ -4521,7 +4521,7 @@ static sqlite3_module vec0Module = {
     /* xRelease      */ 0,
     /* xRollbackTo   */ 0,
     /* xShadowName   */ vec0ShadowName,
-#if SQLITE_VERSION_NUMBER >= 3440000
+#if SQLITE_VERSION_NUMBER >= 3044000
     /* xIntegrity    */ 0,  // TODO
 #endif
 };
