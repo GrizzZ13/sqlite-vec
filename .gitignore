@@ -24,3 +24,5 @@ examples/sotu
 
 sqlite-vec.h
 tmp/
+
+!sqlite-autoconf-3450300.tar.gz
