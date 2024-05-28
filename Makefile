@@ -32,7 +32,7 @@ loadable-debug: sqlite-vec.c sqlite-vec.h dist
 		-Wall -Wextra \
 		-DDEBUG \
 		-O3 \
-		$< -o $@
+		$< -o $(output)
 
 sqlite-vec.h: sqlite-vec.h.tmpl VERSION
 	VERSION=$(shell cat VERSION) \
