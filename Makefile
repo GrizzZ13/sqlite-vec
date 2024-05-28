@@ -1,135 +1,38 @@
-
+.DEFAULT_GOAL:=loadable
 COMMIT=$(shell git rev-parse HEAD)
 VERSION=$(shell cat VERSION)
 DATE=$(shell date +'%FT%TZ%z')
 
-
 ifeq ($(shell uname -s),Darwin)
-CONFIG_DARWIN=y
-else ifeq ($(OS),Windows_NT)
-CONFIG_WINDOWS=y
+    output=dist/libvec.dylib
+else ifeq ($(shell uname -s),Linux)
+    output=dist/libvec.so
 else
-CONFIG_LINUX=y
+    $(error Unsupported OS: $(shell uname -s))
 endif
 
-ifdef CONFIG_DARWIN
-LOADABLE_EXTENSION=dylib
-endif
+dist:
+	mkdir -p dist
 
-ifdef CONFIG_LINUX
-LOADABLE_EXTENSION=so
-endif
-
-ifdef CONFIG_WINDOWS
-LOADABLE_EXTENSION=dll
-endif
-
-
-ifdef python
-PYTHON=$(python)
-else
-PYTHON=python3
-endif
-
-ifndef OMIT_SIMD
-	ifeq ($(shell uname -sm),Darwin x86_64)
-	CFLAGS += -mavx -DSQLITE_VEC_ENABLE_AVX
-	endif
-	ifeq ($(shell uname -sm),Darwin arm64)
-	CFLAGS += -mcpu=apple-m1 -DSQLITE_VEC_ENABLE_NEON
-	endif
-endif
-
-ifdef IS_MACOS_ARM
-RENAME_WHEELS_ARGS=--is-macos-arm
-else
-RENAME_WHEELS_ARGS=
-endif
-
-prefix=dist
-$(prefix):
-	mkdir -p $(prefix)
-
-TARGET_LOADABLE=$(prefix)/libvec.$(LOADABLE_EXTENSION)
-TARGET_STATIC=$(prefix)/libsqlite_vec0.a
-TARGET_STATIC_H=$(prefix)/sqlite-vec.h
-TARGET_CLI=$(prefix)/sqlite3
-
-loadable: $(TARGET_LOADABLE)
-static: $(TARGET_STATIC)
-cli: $(TARGET_CLI)
-
-all: loadable static cli
-
-$(TARGET_LOADABLE): sqlite-vec.c sqlite-vec.h $(prefix)
+loadable: sqlite-vec.c sqlite-vec.h dist
 	gcc \
 		-fPIC -shared \
 		-Ivendor/include \
 		-Lvendor/lib \
 		-Wall -Wextra \
 		-O3 \
-		$(CFLAGS) \
+		$< -o $(output)
+
+loadable-debug: sqlite-vec.c sqlite-vec.h dist
+	gcc \
+		-g \
+		-fPIC -shared \
+		-Ivendor/include \
+		-Lvendor/lib \
+		-Wall -Wextra \
+		-DDEBUG \
+		-O3 \
 		$< -o $@
-
-$(TARGET_STATIC): sqlite-vec.c sqlite-vec.h $(prefix)
-	gcc -Ivendor/sqlite -Ivendor/vec $(CFLAGS) -DSQLITE_CORE \
-	-O3 -c  $< -o $(prefix)/.objs/vec.o
-	ar rcs $@ $(prefix)/.objs/vec.o
-
-$(TARGET_STATIC_H): sqlite-vec.h $(prefix)
-	cp $< $@
-
-
-OBJS_DIR=$(prefix)/.objs
-LIBS_DIR=$(prefix)/.libs
-BUILD_DIR=$(prefix)/.build
-
-$(OBJS_DIR): $(prefix)
-	mkdir -p $@
-
-$(LIBS_DIR): $(prefix)
-	mkdir -p $@
-
-$(BUILD_DIR): $(prefix)
-	mkdir -p $@
-
-$(OBJS_DIR)/sqlite3.o: vendor/sqlite3.c $(OBJS_DIR)
-	gcc -c -g3 -O3 -DSQLITE_EXTRA_INIT=core_init -DSQLITE_CORE -DSQLITE_ENABLE_STMT_SCANSTATUS -DSQLITE_ENABLE_BYTECODE_VTAB -DSQLITE_ENABLE_EXPLAIN_COMMENTS -I./vendor $< -o $@
-
-$(LIBS_DIR)/sqlite3.a: $(OBJS_DIR)/sqlite3.o $(LIBS_DIR)
-	ar rcs $@ $<
-
-$(BUILD_DIR)/shell-new.c: vendor/shell.c $(BUILD_DIR)
-	sed 's/\/\*extra-version-info\*\//EXTRA_TODO/g' $< > $@
-
-$(OBJS_DIR)/shell.o: $(BUILD_DIR)/shell-new.c $(OBJS_DIR)
-	gcc -c -g3 -O3 \
-		-DHAVE_EDITLINE=1 -I./vendor \
-		-DSQLITE_ENABLE_STMT_SCANSTATUS -DSQLITE_ENABLE_BYTECODE_VTAB -DSQLITE_ENABLE_EXPLAIN_COMMENTS \
-		-DEXTRA_TODO="\"CUSTOM BUILD: sqlite-vec\n\"" \
-		$< -o $@
-
-$(LIBS_DIR)/shell.a: $(OBJS_DIR)/shell.o $(LIBS_DIR)
-	ar rcs $@ $<
-
-$(OBJS_DIR)/sqlite-vec.o: sqlite-vec.c $(OBJS_DIR)
-	gcc -c -g3 -I./vendor $(CFLAGS) $< -o $@
-
-$(LIBS_DIR)/sqlite-vec.a: $(OBJS_DIR)/sqlite-vec.o $(LIBS_DIR)
-	ar rcs $@ $<
-
-$(TARGET_CLI): $(LIBS_DIR)/sqlite-vec.a $(LIBS_DIR)/shell.a $(LIBS_DIR)/sqlite3.a examples/sqlite3-cli/core_init.c $(prefix)
-	gcc -g3  \
-	-Ivendor/sqlite -I./ \
-	-DSQLITE_CORE \
-	-DSQLITE_THREADSAFE=0 -DSQLITE_ENABLE_FTS4 \
-	-DSQLITE_ENABLE_STMT_SCANSTATUS -DSQLITE_ENABLE_BYTECODE_VTAB -DSQLITE_ENABLE_EXPLAIN_COMMENTS \
-	-DSQLITE_EXTRA_INIT=core_init \
-	$(CFLAGS) \
-	-lreadline -DHAVE_EDITLINE=1 \
-	-ldl -lm -lreadline \
-	$(LIBS_DIR)/shell.a $(LIBS_DIR)/sqlite3.a $(LIBS_DIR)/sqlite-vec.a examples/sqlite3-cli/core_init.c -o $@
-
 
 sqlite-vec.h: sqlite-vec.h.tmpl VERSION
 	VERSION=$(shell cat VERSION) \
@@ -139,89 +42,3 @@ sqlite-vec.h: sqlite-vec.h.tmpl VERSION
 
 clean:
 	rm -rf dist
-
-
-FORMAT_FILES=sqlite-vec.h sqlite-vec.c
-format: $(FORMAT_FILES)
-	clang-format -i $(FORMAT_FILES)
-	black tests/test-loadable.py
-
-lint: SHELL:=/bin/bash
-lint:
-	diff -u <(cat $(FORMAT_FILES)) <(clang-format $(FORMAT_FILES))
-
-progress:
-	deno run --allow-read=sqlite-vec.c scripts/progress.ts
-
-test:
-	sqlite3 :memory: '.read test.sql'
-
-.PHONY: version loadable static test clean gh-release
-
-publish-release:
-	./scripts/publish-release.sh
-
-
-test-loadable: loadable
-	$(PYTHON) -m pytest -vv -s tests/test-loadable.py
-
-test-loadable-snapshot-update: loadable
-	$(PYTHON) -m pytest -vv tests/test-loadable.py --snapshot-update
-
-test-loadable-watch:
-	watchexec -w sqlite-vec.c -w tests/test-loadable.py -w Makefile --clear -- make test-loadable
-
-site-dev:
-	npm --prefix site run dev
-
-site-build:
-	npm --prefix site run build
-
-# ███████████████████████████████ WASM SECTION ███████████████████████████████
-
-WASM_DIR=$(prefix)/.wasm
-
-$(WASM_DIR): $(prefix)
-	mkdir -p $@
-
-SQLITE_WASM_VERSION=3450300
-SQLITE_WASM_YEAR=2024
-SQLITE_WASM_SRCZIP=$(BUILD_DIR)/sqlite-src.zip
-SQLITE_WASM_COMPILED_SQLITE3C=$(BUILD_DIR)/sqlite-src-$(SQLITE_WASM_VERSION)/sqlite3.c
-SQLITE_WASM_COMPILED_MJS=$(BUILD_DIR)/sqlite-src-$(SQLITE_WASM_VERSION)/ext/wasm/jswasm/sqlite3.mjs
-SQLITE_WASM_COMPILED_WASM=$(BUILD_DIR)/sqlite-src-$(SQLITE_WASM_VERSION)/ext/wasm/jswasm/sqlite3.wasm
-
-TARGET_WASM_LIB=$(WASM_DIR)/libsqlite_vec.wasm.a
-TARGET_WASM_MJS=$(WASM_DIR)/sqlite3.mjs
-TARGET_WASM_WASM=$(WASM_DIR)/sqlite3.wasm
-TARGET_WASM=$(TARGET_WASM_MJS) $(TARGET_WASM_WASM)
-
-$(SQLITE_WASM_SRCZIP): $(BUILD_DIR)
-	curl -o $@ https://www.sqlite.org/$(SQLITE_WASM_YEAR)/sqlite-src-$(SQLITE_WASM_VERSION).zip
-	touch $@
-
-$(SQLITE_WASM_COMPILED_SQLITE3C): $(SQLITE_WASM_SRCZIP) $(BUILD_DIR)
-	rm -rf $(BUILD_DIR)/sqlite-src-$(SQLITE_WASM_VERSION)/ || true
-	unzip -q -o $< -d $(BUILD_DIR)
-	(cd $(BUILD_DIR)/sqlite-src-$(SQLITE_WASM_VERSION)/ && ./configure --enable-all && make sqlite3.c)
-	touch $@
-
-$(TARGET_WASM_LIB): examples/wasm/wasm.c sqlite-vec.c $(BUILD_DIR) $(WASM_DIR)
-	emcc -O3  -I./ -Ivendor -DSQLITE_CORE -c examples/wasm/wasm.c -o $(BUILD_DIR)/wasm.wasm.o
-	emcc -O3  -I./ -Ivendor -DSQLITE_CORE -c sqlite-vec.c -o $(BUILD_DIR)/sqlite-vec.wasm.o
-	emar rcs $@ $(BUILD_DIR)/wasm.wasm.o $(BUILD_DIR)/sqlite-vec.wasm.o
-
-$(SQLITE_WASM_COMPILED_MJS) $(SQLITE_WASM_COMPILED_WASM): $(SQLITE_WASM_COMPILED_SQLITE3C) $(TARGET_WASM_LIB)
-	(cd $(BUILD_DIR)/sqlite-src-$(SQLITE_WASM_VERSION)/ext/wasm && \
-		make sqlite3_wasm_extra_init.c=../../../../.wasm/libsqlite_vec.wasm.a jswasm/sqlite3.mjs jswasm/sqlite3.wasm \
-	)
-
-$(TARGET_WASM_MJS): $(SQLITE_WASM_COMPILED_MJS)
-	cp $< $@
-
-$(TARGET_WASM_WASM): $(SQLITE_WASM_COMPILED_WASM)
-	cp $< $@
-
-wasm: $(TARGET_WASM)
-
-# ███████████████████████████████   END WASM   ███████████████████████████████
